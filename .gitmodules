@@ -1,0 +1,3 @@
+[submodule "lib/threadLockLib"]
+	path = lib/threadLockLib
+	url = https://github.com/tiankonguse/threadLockLib.git

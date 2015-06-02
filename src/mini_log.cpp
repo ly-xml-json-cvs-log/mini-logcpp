@@ -9,8 +9,52 @@
 
 namespace mini_log {
     
-    char *sLogLevel[] = { "INFO", "WARN", "ERROR", "FATAL", "" };
-    char** CMiniLog::level_str = sLogLevel;
+    const char *sLogLevel[] = { "INFO", "WARN", "ERROR", "FATAL", "" };
+    const char** CMiniLog::level_str = sLogLevel;
+    
+    CMiniLog::CMiniLog() {
+        
+        SetLogLevel(LOG_ERROR);
+        SetLogNameFmt(LOG_NAME_DEFAULT_FLAG);
+        SetLogContentFmt(LOG_CONTENT_DEFAULT_FLAG);
+        
+        //默认缓存关闭
+        _bSaveDelay = false;
+        _uiDelayLogSize = 0;
+        _sData = NULL;
+        _uiCurWrite = 0;
+        
+        //默认情况下，最大单个Log文件大小为1G，滚动模式打日志, 文件数目为5
+        SetLogNum(LOG_DEFAULT_LOG_SAVE_COUNT);
+        SetLogSize(LOG_DEFAULT_LOG_MAX_SIZE);
+        
+        memset(_sFilePath, 0, LOG_MAX_PATH);
+        memset(_sFilePrefixName, 0, LOG_MAX_PATH);
+        memset(_sProcessName, 0, LOG_MAX_PATH);
+        
+        //默认情况下日志文件存放在/var/log/目录下
+        strncpy(_sFilePath, "/var/log/", LOG_MAX_PATH);
+        
+        //获得进程ID和进程名
+        _iProcessID = getpid();
+        GetProcessName(_sProcessName, LOG_MAX_PATH);
+        
+        //默认情况下日志前缀为进程名
+        strncpy(_sFilePrefixName, _sProcessName, sizeof(_sFilePrefixName) - 1);
+        
+        _bLogShift = true;
+        _uiLogMaxSize = LOG_DEFAULT_LOG_MAX_SIZE;
+        _uiLogSaveCount = LOG_DEFAULT_LOG_SAVE_COUNT;
+        
+        _lock.init();
+    }
+    
+    CMiniLog::~CMiniLog() {
+        if (_sData != NULL) {
+            delete[] _sData;
+            _sData = NULL;
+        }
+    }
     
     void CMiniLog::LogEx(LOG_LEVEL log_level, const char *file_name,
             const char *fn_name, unsigned int line, const char * fmt, ...) {
@@ -74,15 +118,19 @@ namespace mini_log {
             
             if (GetSaveDelay() == true && _uiCurWrite > 0) {
                 fwrite(_sData, 1, _uiCurWrite, f);
-                
                 _uiCurWrite = 0;
-                memset(_sData, 0, sizeof(_sData));
-            } else
+                memset(_sData, 0, sizeof(char) * _uiDelayLogSize);
+            } else {
                 fwrite(sLogContent, 1, uilen, f);
+            }
             
             fclose(f);
         }
         return 0;
+    }
+    
+    inline bool CMiniLog::GetSaveDelay() const {
+        return _bSaveDelay;
     }
     
     int CMiniLog::ShiftLogFiles(const char *sFilePrefixName) {
@@ -101,7 +149,7 @@ namespace mini_log {
             return 0;
         }
         
-        CMyAutoLock2 myLock(&_semLock);
+        ThreadAutoLock myLock(&_lock);
         
         snprintf(sLogFileName, sizeof(sLogFileName) - 1, "%s%u.log",
                 sFilePrefixName, _uiLogSaveCount - 1);
@@ -143,9 +191,7 @@ namespace mini_log {
         if (log_level > LOG_FATAL) {
             return;
         }
-
         SPRINT(buffer, buff_max_len, buff_cur_len, fmt, level_str[log_level]);
-        
     }
     
     int CMiniLog::LogFileName(char *file_name, int max_len,
@@ -165,17 +211,17 @@ namespace mini_log {
         }
         
         switch (_emNameFmt) {
-            case LOG_NAME_NONE: {
+            case LOG_NAME_NONE_FLAG: {
                 break;
             }
             default: {
-                if (_emNameFmt & LOG_PID_FALG) {
+                if (_emNameFmt & LOG_NAME_PID_FALG) {
                     SPRINT(file_name, max_len, len, "%d", getpid());
                 }
-                if (_emNameFmt & LOG_LEVEL_FLAG) {
+                if (_emNameFmt & LOG_NAME_LEVEL_FLAG) {
                     SprintLogLevel(file_name, max_len, len, "_%s", log_level);
                 }
-                if (_emNameFmt & LOG_DATE_FLAG) {
+                if (_emNameFmt & LOG_NAME_DATE_FLAG) {
                     SprintDate(file_name, max_len, len, "_%04d-%02d-%02d");
                 }
                 break;
@@ -193,28 +239,28 @@ namespace mini_log {
         int len = 0;
         
         //日志内容输出日期时间
-        if (_emContentFmt & TIME_LCF) {
+        if (_emContentFmt & LOG_CONTENT_TIME_FLAG) {
             SprintTime(log_content, max_len, len,
                     "%04d-%02d-%02d %02d:%02d:%02d");
         }
         
-        if (_emContentFmt & PID_LCF) {
+        if (_emContentFmt & LOG_CONTENT_PID_FLAG) {
             SPRINT(log_content, max_len, len, "[%d]", getpid());
         }
         
-        if ((_emContentFmt & FILE_LCF) && file_name != NULL) {
+        if ((_emContentFmt & LOG_CONTENT_FILE_FLAG) && file_name != NULL) {
             SPRINT(log_content, max_len, len, "/%s/", file_name);
         }
         
-        if ((_emContentFmt & FUN_LCF) && fn_name != NULL) {
+        if ((_emContentFmt & LOG_CONTENT_FUN_FLAG) && fn_name != NULL) {
             SPRINT(log_content, max_len, len, "{%s}", fn_name);
         }
         
-        if ((_emContentFmt & LINE_LCF) && line > 0) {
+        if ((_emContentFmt & LOG_CONTENT_LINE_FLAG) && line > 0) {
             SPRINT(log_content, max_len, len, "(%d)", line);
         }
         
-        if (_emContentFmt & LEVEL_LCF) {
+        if (_emContentFmt & LOG_CONTENT_LEVEL_FLAG) {
             SprintLogLevel(log_content, max_len, len, "_%-6s", log_level);
         }
         
@@ -256,11 +302,11 @@ namespace mini_log {
         }
     }
     
-    void CMiniLog::SetLogPreName(unsigned int mode) {
+    void CMiniLog::SetLogNameFmt(unsigned int mode) {
         if (mode > 0) {
             _emNameFmt = mode;
         } else {
-            _emNameFmt = LOG_NAME_NONE;
+            _emNameFmt = LOG_NAME_NONE_FLAG;
         }
     }
     
@@ -268,7 +314,7 @@ namespace mini_log {
         if (mode > 0) {
             _emContentFmt = mode;
         } else {
-            _emContentFmt = LCF_ALL;
+            _emContentFmt = LOG_CONTENT_ALL_FLAG;
         }
     }
     
@@ -291,7 +337,7 @@ namespace mini_log {
         }
     }
     
-    void CMiniLog::SetLogNum(unsigned int log_save_cnt = 0) {
+    void CMiniLog::SetLogNum(unsigned int log_save_cnt) {
         if (log_save_cnt > 0) {
             _bLogShift = true;
             _uiLogSaveCount = log_save_cnt;

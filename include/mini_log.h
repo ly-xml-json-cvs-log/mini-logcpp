@@ -10,6 +10,7 @@
 
 #include "config.h"
 #include "mini_log_tools.h"
+#include "threadLock.h"
 
 namespace mini_log {
     
@@ -78,7 +79,7 @@ namespace mini_log {
          *
          * @param mode 日志内容格式
          */
-        inline void SetLogPreName(unsigned int mode);
+        inline void SetLogNameFmt(unsigned int mode);
 
         /*
          *设置日志内容格式
@@ -180,8 +181,15 @@ namespace mini_log {
          */
         int Log(const char *sLogContent, unsigned int uilen);
 
+        /**
+         * 是否打开缓写模式
+         *
+         * @return true缓写模式已打开，false缓写模式已关闭
+         */
+        inline bool GetSaveDelay() const;
+
     private:
-        char** level_str;
+        static const char** level_str;
         int _log_level;							//日志的级别
         
         bool _bSaveDelay;						//是否打开缓写模式
@@ -196,9 +204,12 @@ namespace mini_log {
         unsigned int _emNameFmt;                //日志文件名前缀
         unsigned int _emContentFmt;             //日志内容前缀
         
+        pid_t _iProcessID;                      //进程ID
         char _sProcessName[LOG_MAX_PATH];       //进程名
         char _sFilePrefixName[LOG_MAX_PATH];    //日志文件名前缀
         char _sFilePath[LOG_MAX_PATH];          //日志文件路径
+        
+        ThreadMutexLock _lock;
     };
     
     class CMiniLogger {
