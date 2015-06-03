@@ -1,6 +1,7 @@
 
 ### lib path
-LIB_PATH = ${PROJECT_PATH}/lib
+LIB_PATH = ${PROJECT_PATH}/..
+
 
 ### thread lock lib
 PATH_THREAD_LOCK = $(LIB_PATH)/threadLockLib
