@@ -18,7 +18,7 @@ LIB = -lz -lrt -lpthread ${LIB_THREAD_LOCK}
 SOURCE = $(wildcard *.cpp)
 OBJS    = $(patsubst %.cpp,%.o,$(SOURCE))
 
-OUTPUT  := ../lib/libmini-logcpp.a
+OUTPUT  := ../lib/libmini_logcpp.a
 
 all: $(OUTPUT)
 
